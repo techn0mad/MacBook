@@ -1,0 +1,81 @@
+---
+- name: MacBook provisioning
+  hosts: all
+
+  vars:
+    uninstall_brew: false
+    brew_bin: '/opt/homebrew/bin/brew'
+    brew_dir: '/opt/homebrew'
+    brew_packages:
+      - 'pass'
+      - 'wget'
+      - 'jq'
+      - 'git'
+      - 'awscli'
+      - 'gh'
+      - 'python'
+      - 'emacs'
+      - 'mactex'
+      - 'ruby'
+
+  handlers:
+    - name: Reboot system
+      ansible.builtin.reboot:
+
+  tasks:
+    - name: Uninstall Homebrew
+      ansible.builtin.shell: |
+        set -e -o pipefail
+        /bin/bash -c "NONINTERACTIVE=1 $(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/uninstall.sh)"
+        rm -frv /opt/homebrew/etc /opt/homebrew/share /opt/homebrew/var
+      args:
+        executable: '/bin/bash'
+      when:
+        - ansible_distribution == "MacOSX"
+        - uninstall_brew
+
+    - name: Check if Homebrew is installed
+      ansible.builtin.stat:
+        path: "{{ brew_bin }}"
+      register: r_brew_bin
+
+    - name: Install Homebrew
+      ansible.builtin.shell: |
+        set -e -o pipefail
+        /bin/bash -c "NONINTERACTIVE=1 $(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+        # ==> Next steps: 
+        # - Run these two commands in your terminal to add Homebrew to your PATH:
+        (echo; echo 'eval "$(/opt/homebrew/bin/brew shellenv)"') >> "${HOME}/.zprofile"
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+      args:
+        executable: '/bin/bash'
+      when:
+        - ansible_distribution == "MacOSX"
+        - r_brew_bin.stat.isreg is not defined
+
+    - name: Install Homebrew packages
+      community.general.homebrew:
+        name: "{{ item }}"
+        state: present
+        update_homebrew: true
+      loop: "{{ brew_packages }}"
+      when:
+        - ansible_distribution == "MacOSX"
+
+    - name: Tap Hashicorp Brew Cask
+      community.general.homebrew_tap:
+        name: hashicorp/tap
+      when:
+        - ansible_distribution == "MacOSX"
+
+    - name: Install Hashicorp Apps
+      community.general.homebrew:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - 'hashicorp/tap/vault'
+        - 'hashicorp/tap/packer'
+        - 'hashicorp/tap/terraform'
+      when:
+        - ansible_distribution == "MacOSX"
+
