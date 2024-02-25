@@ -14,15 +14,30 @@
       - 'awscli'
       - 'gh'
       - 'python'
-      - 'emacs'
+      - 'sshpass'
       - 'mactex'
       - 'ruby'
+      - 'dockutil'
 
   handlers:
     - name: Reboot system
       ansible.builtin.reboot:
 
   tasks:
+    - name: Check for SSH keys
+      ansible.builtin.stat:
+        path: './.ssh/id_rsa'
+      register: r_ssh_rsa_key
+
+    - name: Generate SSH keys
+      community.crypto.openssh_keypair:
+        path: './.ssh/id_rsa'
+        size: 4096
+        comment: "{{ lookup('ansible.builtin.env', 'USER') }}@{{ ansible_fqdn }}"
+        mode: '0600'
+      when:
+        - r_ssh_rsa_key.stat.isreg is not defined
+
     - name: Uninstall Homebrew
       ansible.builtin.shell: |
         set -e -o pipefail
@@ -43,15 +58,19 @@
       ansible.builtin.shell: |
         set -e -o pipefail
         /bin/bash -c "NONINTERACTIVE=1 $(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-        # ==> Next steps: 
-        # - Run these two commands in your terminal to add Homebrew to your PATH:
-        (echo; echo 'eval "$(/opt/homebrew/bin/brew shellenv)"') >> "${HOME}/.zprofile"
-        eval "$(/opt/homebrew/bin/brew shellenv)"
       args:
         executable: '/bin/bash'
       when:
         - ansible_distribution == "MacOSX"
         - r_brew_bin.stat.isreg is not defined
+
+    - name: Setup Homebrew env vars
+      ansible.builtin.blockinfile:
+        path: './.zprofile'
+        append_newline: true
+        prepend_newline: true
+        block: |
+          eval "$(/opt/homebrew/bin/brew shellenv)"
 
     - name: Install Homebrew packages
       community.general.homebrew:
@@ -79,3 +98,30 @@
       when:
         - ansible_distribution == "MacOSX"
 
+    - name: Install Packages
+      ansible.builtin.shell: |
+        set -e -o pipefail
+        eval "$(/opt/homebrew/bin/brew shellenv)"  # Setup paths to brew binaries
+        rm -fR ./tmp/
+        if ! [ -d "/Applications/{{ item.appName }}.app" ]; then
+            mkdir -p ./tmp/  # Create work area
+            pushd ./tmp
+            wget --quiet "{{ item.dmgURL }}" --output-document="{{ item.appName }}.dmg"  # Download image
+            mkdir -p "./{{ item.appName }}"
+            hdiutil detach "$(pwd)/{{ item.appName }}/" || true # Detach image
+            hdiutil attach "$(pwd)/{{ item.appName }}.dmg" -nobrowse -mountpoint "$(pwd)/{{ item.appName }}"  # Attach image
+            rm -fR "/Applications/{{ item.appName }}.app"
+            cp -aR "$(pwd)/{{ item.appName }}/{{ item.appName }}.app" "/Applications/{{ item.appName }}.app"  # Copy application
+            hdiutil detach "$(pwd)/{{ item.appName }}/"  # Detach image
+            popd
+            rm -R ./tmp/  # Delete workarea
+        fi
+      args:
+        executable: '/bin/bash'
+      loop:
+        - { appName: 'Firefox', dmgURL: 'https://ftp.mozilla.org/pub/firefox/releases/121.0.1/mac/en-US/Firefox%20121.0.1.dmg' }
+        - { appName: 'Emacs', dmgURL: 'https://emacsformacosx.com/emacs-builds/Emacs-29.2-universal.dmg' }
+        - { appName: 'Slack', dmgURL: 'https://slack.com/ssb/download-osx-universal' }
+        - { appName: 'Freeplane', dmgURL: 'https://sourceforge.net/projects/freeplane/files/freeplane%20stable/Freeplane-1.11.10-apple.dmg/download' }
+      when:
+        - ansible_distribution == "MacOSX"
