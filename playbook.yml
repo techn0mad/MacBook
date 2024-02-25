@@ -96,6 +96,7 @@
         - 'hashicorp/tap/vault'
         - 'hashicorp/tap/packer'
         - 'hashicorp/tap/terraform'
+        - 'hashicorp/tap/hashicorp-vagrant'
       when:
         - ansible_distribution == "MacOSX"
 
@@ -124,5 +125,6 @@
         - { appName: 'Emacs', dmgURL: 'https://emacsformacosx.com/emacs-builds/Emacs-29.2-universal.dmg' }
         - { appName: 'Slack', dmgURL: 'https://slack.com/ssb/download-osx-universal' }
         - { appName: 'Freeplane', dmgURL: 'https://sourceforge.net/projects/freeplane/files/freeplane%20stable/Freeplane-1.11.10-apple.dmg/download' }
+        - { appName: 'Docker', dmgURL: 'https://desktop.docker.com/mac/main/arm64/Docker.dmg?utm_source=docker&utm_medium=webreferral&utm_campaign=docs-driven-download-mac-arm64' }
       when:
         - ansible_distribution == "MacOSX"
