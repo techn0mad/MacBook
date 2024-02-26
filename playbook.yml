@@ -4,8 +4,6 @@
 
   vars:
     uninstall_brew: false
-    brew_bin: '/opt/homebrew/bin/brew'
-    brew_dir: '/opt/homebrew'
     brew_packages:
       - 'gpg'
       - 'pass'
@@ -39,6 +37,22 @@
       when:
         - r_ssh_rsa_key.stat.isreg is not defined
 
+    - name: Configure Homebrew vars for ARM
+      ansible.builtin.set_fact:
+        brew_bin: '/opt/homebrew/bin/brew'
+        brew_dir: '/opt/homebrew'
+        cacheable: true
+      when:
+        - ansible_architecture == "arm64"
+
+    - name: Configure Homebrew vars for x86_64
+      ansible.builtin.set_fact:
+        brew_bin: '/usr/local/bin/brew'
+        brew_dir: '/usr/local'
+        cacheable: true
+      when:
+        - ansible_architecture == "x86_64"
+
     - name: Uninstall Homebrew
       ansible.builtin.shell: |
         set -e -o pipefail
@@ -65,13 +79,29 @@
         - ansible_distribution == "MacOSX"
         - r_brew_bin.stat.isreg is not defined
 
-    - name: Setup Homebrew env vars
+    - name: Setup Homebrew env vars for ARM
       ansible.builtin.blockinfile:
         path: './.zprofile'
+        create: true
         append_newline: true
         prepend_newline: true
         block: |
           eval "$(/opt/homebrew/bin/brew shellenv)"
+      when:
+        - ansible_architecture == "arm64"
+        - ansible_user_shell == "/bin/zsh"
+
+    - name: Setup Homebrew env vars for x86_64
+      ansible.builtin.blockinfile:
+        path: './.profile'
+        create: true
+        append_newline: true
+        prepend_newline: true
+        block: |
+          eval "$(/usr/local/bin/brew shellenv)"
+      when:
+        - ansible_architecture == "x86_64"
+        - ansible_user_shell == "/bin/bash"
 
     - name: Install Homebrew packages
       community.general.homebrew:
@@ -103,28 +133,31 @@
     - name: Install Packages
       ansible.builtin.shell: |
         set -e -o pipefail
-        eval "$(/opt/homebrew/bin/brew shellenv)"  # Setup paths to brew binaries
+        eval "$({{ brew_bin }} shellenv)"  # Setup paths to Homebrew binaries
         rm -fR ./tmp/
-        if ! [ -d "/Applications/{{ item.appName }}.app" ]; then
-            mkdir -p ./tmp/  # Create work area
-            pushd ./tmp
-            wget --quiet "{{ item.dmgURL }}" --output-document="{{ item.appName }}.dmg"  # Download image
-            mkdir -p "./{{ item.appName }}"
-            hdiutil detach "$(pwd)/{{ item.appName }}/" || true # Detach image
-            hdiutil attach "$(pwd)/{{ item.appName }}.dmg" -nobrowse -mountpoint "$(pwd)/{{ item.appName }}"  # Attach image
-            rm -fR "/Applications/{{ item.appName }}.app"
-            cp -aR "$(pwd)/{{ item.appName }}/{{ item.appName }}.app" "/Applications/{{ item.appName }}.app"  # Copy application
-            hdiutil detach "$(pwd)/{{ item.appName }}/"  # Detach image
-            popd
-            rm -R ./tmp/  # Delete workarea
+        mkdir -p ./tmp/  # Create work area
+        pushd ./tmp
+        wget --quiet "{{ item.dmgURL }}"  # Download image
+        IMG="$(basename "$(ls *.dmg)")"
+        MOUNT="$(yes | PAGER=cat hdiutil attach -nobrowse "$(pwd)/${IMG}" | \
+            tail -1 | awk -F'\t' '{ print $(NF) }' || true)"
+        APPNAME="$(basename "$(ls -d "${MOUNT}"/*.app)")"
+        if ! [ -d "/Applications/${APPNAME}" ]; then  # If app is not present
+            cp -aR "${MOUNT}/${APPNAME}" /Applications/  # Copy application
         fi
+        hdiutil detach "${MOUNT}"  # Detach image
+        popd
+        rm -R ./tmp/  # Delete workarea
       args:
         executable: '/bin/bash'
       loop:
         - { appName: 'Firefox', dmgURL: 'https://ftp.mozilla.org/pub/firefox/releases/121.0.1/mac/en-US/Firefox%20121.0.1.dmg' }
         - { appName: 'Emacs', dmgURL: 'https://emacsformacosx.com/emacs-builds/Emacs-29.2-universal.dmg' }
-        - { appName: 'Slack', dmgURL: 'https://slack.com/ssb/download-osx-universal' }
-        - { appName: 'Freeplane', dmgURL: 'https://sourceforge.net/projects/freeplane/files/freeplane%20stable/Freeplane-1.11.10-apple.dmg/download' }
-        - { appName: 'Docker', dmgURL: 'https://desktop.docker.com/mac/main/arm64/Docker.dmg?utm_source=docker&utm_medium=webreferral&utm_campaign=docs-driven-download-mac-arm64' }
+        - { appName: 'Slack', dmgURL: 'https://downloads.slack-edge.com/releases/macos/4.36.140/prod/universal/Slack-4.36.140-macOS.dmg' }
+        - { appName: 'Freeplane', dmgURL: 'https://sourceforge.net/projects/freeplane/files/freeplane%20stable/Freeplane-1.11.10-intel.dmg' }
+        - { appName: 'Squeak', dmgURL: 'https://files.squeak.org/6.0/Squeak6.0-22148-64bit/Squeak6.0-22148-64bit-202312181441-macOS.dmg' }
+        - { appName: 'IPinmenubar', dmgURL: 'https://www.monkeybreadsoftware.de/Software/IPinmenubar.dmg' }
+        - { appName: 'OmniGraffle', dmgURL: 'https://downloads.omnigroup.com/software/macOS/11/OmniGraffle-7.22.5.dmg' }
+        - { appName: 'OmniDiskSweeper', dmgURL: 'https://downloads.omnigroup.com/software/macOS/11/OmniDiskSweeper-1.14.dmg' }
       when:
         - ansible_distribution == "MacOSX"
